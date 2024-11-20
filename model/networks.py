@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.nn import init
 from torch.nn import modules
+import torch.distributed as dist
 logger = logging.getLogger('base')
 ####################
 # initialize
@@ -59,7 +60,12 @@ def weights_init_orthogonal(m):
 
 def init_weights(net, init_type='kaiming', scale=1, std=0.02):
     # scale for 'kaiming', std for 'normal'.
-    logger.info('Initialization method [{:s}]'.format(init_type))
+    if dist.is_initialized():
+        rank=dist.get_rank()
+    else:
+        rank=0
+    if rank == 0:
+        logger.info('Initialization method [{:s}]'.format(init_type))
     if init_type == 'normal':
         weights_init_normal_ = functools.partial(weights_init_normal, std=std)
         net.apply(weights_init_normal_)
@@ -110,7 +116,8 @@ def define_G(opt):
     if opt['phase'] == 'train':
         # init_weights(netG, init_type='kaiming', scale=0.1)
         init_weights(netG, init_type='orthogonal')
-    if opt['gpu_ids'] and opt['distributed']:
-        assert torch.cuda.is_available()
-        netG = nn.DataParallel(netG)
+    #if opt['gpu_ids'] and opt['distributed']:
+    #    assert torch.cuda.is_available()
+    #    netG = nn.DataParallel(netG)
+    #####netG = nn.parallel.DistributedDataParallel(netG)
     return netG

@@ -1,13 +1,13 @@
 import os
 import torch
 import torch.nn as nn
-
+import torch.distributed as dist
 
 class BaseModel():
     def __init__(self, opt):
         self.opt = opt
-        self.device = torch.device(
-            'cuda' if opt['gpu_ids'] is not None else 'cpu')
+        self.device = torch.device('hpu') #torch.device(
+            #'cuda' if opt['gpu_ids'] is not None else 'cpu')
         self.begin_step = 0
         self.begin_epoch = 0
 
@@ -35,6 +35,10 @@ class BaseModel():
             for item in x:
                 if item is not None:
                     item = item.to(self.device)
+        elif isinstance(x, torch.nn.Module):
+            x = x.to(self.device)
+            if dist.is_initialized():
+                x = nn.parallel.DistributedDataParallel(x)
         else:
             x = x.to(self.device)
         return x

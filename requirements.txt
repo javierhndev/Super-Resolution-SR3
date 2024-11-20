@@ -1,5 +1,5 @@
-torch>=1.6
-torchvision
+# torch>=1.6
+# torchvision
 numpy
 pandas
 tqdm

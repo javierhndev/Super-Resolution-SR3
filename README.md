@@ -1,3 +1,14 @@
+# Fork Super-Resolution SR3
+This is a fork from the [Image Super-Resolution via Iterative Refinement repo](https://github.com/Janspiry/Image-Super-Resolution-via-Iterative-Refinement)
+Some of the things I implemented:
+- Added Distributed Data Parallelism (DDP). Now it can run in multiple nodes with `mpirun`.
+- It works in Intel Gaudi accelerator.
+
+TODO:
+- Make it compatible with Nvidia gpus.
+- Non-rectangular images
+
+
 # Image Super-Resolution via Iterative Refinement
 
 [Paper](https://arxiv.org/pdf/2104.07636.pdf ) |  [Project](https://iterative-refinement.github.io/ )

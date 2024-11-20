@@ -8,6 +8,7 @@ import core.metrics as Metrics
 from core.wandb_logger import WandbLogger
 from tensorboardX import SummaryWriter
 import os
+import habana_frameworks.torch.core as htcore
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -24,6 +25,11 @@ if __name__ == "__main__":
     opt = Logger.parse(args)
     # Convert to NoneDict, which return None for missing key.
     opt = Logger.dict_to_nonedict(opt)
+
+    #Inference runs on a single device. Not ready for distributed training
+    print('Running on a single device!')
+    rank=0
+    world_size=1
 
     # logging
     torch.backends.cudnn.enabled = True
@@ -47,7 +53,8 @@ if __name__ == "__main__":
         if phase == 'val':
             val_set = Data.create_dataset(dataset_opt, phase)
             val_loader = Data.create_dataloader(
-                val_set, dataset_opt, phase)
+                val_set, dataset_opt, phase,
+                rank, world_size)
     logger.info('Initial Dataset Finished')
 
     # model

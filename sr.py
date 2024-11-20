@@ -10,6 +10,16 @@ from tensorboardX import SummaryWriter
 import os
 import numpy as np
 
+import habana_frameworks.torch.core as htcore
+import torch.distributed as dist
+
+def sync_between_proc(value,world_size,device):
+    value_tensor=torch.tensor(value,device=device)
+    if dist.is_initialized():
+        dist.all_reduce(value_tensor,op=dist.ReduceOp.SUM)
+        value_tensor=value_tensor/world_size
+    return value_tensor
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', type=str, default='config/sr_sr3_16_128.json',
@@ -21,12 +31,27 @@ if __name__ == "__main__":
     parser.add_argument('-enable_wandb', action='store_true')
     parser.add_argument('-log_wandb_ckpt', action='store_true')
     parser.add_argument('-log_eval', action='store_true')
+    parser.add_argument('--distributed', action='store_true',help='To run in distributed mode on multiple devices')
 
     # parse configs
     args = parser.parse_args()
     opt = Logger.parse(args)
     # Convert to NoneDict, which return None for missing key.
     opt = Logger.dict_to_nonedict(opt)
+
+    #Initialize parallelization if available (and in the config file)
+    if dist.is_available() and args.distributed:
+        from habana_frameworks.torch.distributed.hccl import initialize_distributed_hpu
+        world_size, rank, local_rank = initialize_distributed_hpu()
+        print('Hi Im Worker:',rank)
+
+        dist.init_process_group(backend='hccl',
+                world_size=world_size,
+                rank=rank)
+    else:
+        print('Running on a single device!')
+        rank=0
+        world_size=1
 
     # logging
     torch.backends.cudnn.enabled = True
@@ -36,7 +61,8 @@ if __name__ == "__main__":
                         'train', level=logging.INFO, screen=True)
     Logger.setup_logger('val', opt['path']['log'], 'val', level=logging.INFO)
     logger = logging.getLogger('base')
-    logger.info(Logger.dict2str(opt))
+    if rank==0:
+        logger.info(Logger.dict2str(opt))
     tb_logger = SummaryWriter(log_dir=opt['path']['tb_logger'])
 
     # Initialize WandbLogger
@@ -50,21 +76,26 @@ if __name__ == "__main__":
     else:
         wandb_logger = None
 
+
     # dataset
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train' and args.phase != 'val':
             train_set = Data.create_dataset(dataset_opt, phase)
-            train_loader = Data.create_dataloader(
-                train_set, dataset_opt, phase)
+            train_loader,train_sampler = Data.create_dataloader(
+                train_set, dataset_opt, phase,
+                rank, world_size)
         elif phase == 'val':
             val_set = Data.create_dataset(dataset_opt, phase)
             val_loader = Data.create_dataloader(
-                val_set, dataset_opt, phase)
-    logger.info('Initial Dataset Finished')
+                val_set, dataset_opt, phase,
+                rank, world_size)
+    if rank==0:
+        logger.info('Initial Dataset Finished')
 
     # model
     diffusion = Model.create_model(opt)
-    logger.info('Initial Model Finished')
+    if rank==0:
+        logger.info('Initial Model Finished')
 
     # Train
     current_step = diffusion.begin_step
@@ -72,29 +103,38 @@ if __name__ == "__main__":
     n_iter = opt['train']['n_iter']
 
     if opt['path']['resume_state']:
-        logger.info('Resuming training from epoch: {}, iter: {}.'.format(
-            current_epoch, current_step))
+        if rank==0:
+            logger.info('Resuming training from epoch: {}, iter: {}.'.format(
+                current_epoch, current_step))
 
     diffusion.set_new_noise_schedule(
         opt['model']['beta_schedule'][opt['phase']], schedule_phase=opt['phase'])
     if opt['phase'] == 'train':
         while current_step < n_iter:
             current_epoch += 1
+            if dist.is_initialized():
+                train_sampler.set_epoch(current_epoch) #shuffle the sampler each epoch
+
             for _, train_data in enumerate(train_loader):
                 current_step += 1
                 if current_step > n_iter:
                     break
                 diffusion.feed_data(train_data)
                 diffusion.optimize_parameters()
+                if dist.is_initialized():
+                    dist.barrier()
+
                 # log
                 if current_step % opt['train']['print_freq'] == 0:
                     logs = diffusion.get_current_log()
                     message = '<epoch:{:3d}, iter:{:8,d}> '.format(
                         current_epoch, current_step)
                     for k, v in logs.items():
-                        message += '{:s}: {:.4e} '.format(k, v)
-                        tb_logger.add_scalar(k, v, current_step)
-                    logger.info(message)
+                        v_sync=sync_between_proc(v,world_size,diffusion.device)
+                        message += '{:s}: {:.4e} '.format(k, v_sync)
+                        if rank==0:
+                            tb_logger.add_scalar(k, v_sync, current_step)
+                            logger.info(message)
 
                     if wandb_logger:
                         wandb_logger.log_metrics(logs)
@@ -121,18 +161,19 @@ if __name__ == "__main__":
 
                         # generation
                         Metrics.save_img(
-                            hr_img, '{}/{}_{}_hr.png'.format(result_path, current_step, idx))
+                            hr_img, '{}/{}_{}_{}_hr.png'.format(result_path, current_step, rank, idx))
                         Metrics.save_img(
-                            sr_img, '{}/{}_{}_sr.png'.format(result_path, current_step, idx))
+                            sr_img, '{}/{}_{}_{}_sr.png'.format(result_path, current_step, rank, idx))
                         Metrics.save_img(
-                            lr_img, '{}/{}_{}_lr.png'.format(result_path, current_step, idx))
+                            lr_img, '{}/{}_{}_{}_lr.png'.format(result_path, current_step, rank, idx))
                         Metrics.save_img(
-                            fake_img, '{}/{}_{}_inf.png'.format(result_path, current_step, idx))
-                        tb_logger.add_image(
-                            'Iter_{}'.format(current_step),
-                            np.transpose(np.concatenate(
-                                (fake_img, sr_img, hr_img), axis=1), [2, 0, 1]),
-                            idx)
+                            fake_img, '{}/{}_{}_{}_inf.png'.format(result_path, current_step, rank, idx))
+                        if rank==0:
+                            tb_logger.add_image(
+                                'Iter_{}'.format(current_step),
+                                np.transpose(np.concatenate(
+                                    (fake_img, sr_img, hr_img), axis=1), [2, 0, 1]),
+                                idx)
                         avg_psnr += Metrics.calculate_psnr(
                             sr_img, hr_img)
 
@@ -142,16 +183,18 @@ if __name__ == "__main__":
                                 np.concatenate((fake_img, sr_img, hr_img), axis=1)
                             )
 
+                    avg_psnr=sync_between_proc(avg_psnr,world_size,diffusion.device)    
                     avg_psnr = avg_psnr / idx
                     diffusion.set_new_noise_schedule(
                         opt['model']['beta_schedule']['train'], schedule_phase='train')
                     # log
-                    logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
-                    logger_val = logging.getLogger('val')  # validation logger
-                    logger_val.info('<epoch:{:3d}, iter:{:8,d}> psnr: {:.4e}'.format(
-                        current_epoch, current_step, avg_psnr))
-                    # tensorboard logger
-                    tb_logger.add_scalar('psnr', avg_psnr, current_step)
+                    if rank==0:
+                        logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
+                        logger_val = logging.getLogger('val')  # validation logger
+                        logger_val.info('<epoch:{:3d}, iter:{:8,d}> psnr: {:.4e}'.format(
+                            current_epoch, current_step, avg_psnr))
+                        # tensorboard logger
+                        tb_logger.add_scalar('psnr', avg_psnr, current_step)
 
                     if wandb_logger:
                         wandb_logger.log_metrics({
@@ -160,7 +203,7 @@ if __name__ == "__main__":
                         })
                         val_step += 1
 
-                if current_step % opt['train']['save_checkpoint_freq'] == 0:
+                if current_step % opt['train']['save_checkpoint_freq'] == 0 and rank==0:
                     logger.info('Saving models and training states.')
                     diffusion.save_network(current_epoch, current_step)
 
@@ -171,7 +214,8 @@ if __name__ == "__main__":
                 wandb_logger.log_metrics({'epoch': current_epoch-1})
 
         # save model
-        logger.info('End of training.')
+        if rank==0:
+            logger.info('End of training.')
     else:
         logger.info('Begin Model Evaluation.')
         avg_psnr = 0.0
@@ -196,21 +240,21 @@ if __name__ == "__main__":
                 sample_num = sr_img.shape[0]
                 for iter in range(0, sample_num):
                     Metrics.save_img(
-                        Metrics.tensor2img(sr_img[iter]), '{}/{}_{}_sr_{}.png'.format(result_path, current_step, idx, iter))
+                        Metrics.tensor2img(sr_img[iter]), '{}/{}_{}_sr_{}.png'.format(result_path, current_step, rank, idx, iter))
             else:
                 # grid img
                 sr_img = Metrics.tensor2img(visuals['SR'])  # uint8
                 Metrics.save_img(
-                    sr_img, '{}/{}_{}_sr_process.png'.format(result_path, current_step, idx))
+                    sr_img, '{}/{}_{}_{}_sr_process.png'.format(result_path, current_step, rank, idx))
                 Metrics.save_img(
-                    Metrics.tensor2img(visuals['SR'][-1]), '{}/{}_{}_sr.png'.format(result_path, current_step, idx))
+                    Metrics.tensor2img(visuals['SR'][-1]), '{}/{}_{}_{}_sr.png'.format(result_path, current_step, rank, idx))
 
             Metrics.save_img(
-                hr_img, '{}/{}_{}_hr.png'.format(result_path, current_step, idx))
+                hr_img, '{}/{}_{}_{}_hr.png'.format(result_path, current_step, rank, idx))
             Metrics.save_img(
-                lr_img, '{}/{}_{}_lr.png'.format(result_path, current_step, idx))
+                lr_img, '{}/{}_{}_{}_lr.png'.format(result_path, current_step, rank, idx))
             Metrics.save_img(
-                fake_img, '{}/{}_{}_inf.png'.format(result_path, current_step, idx))
+                fake_img, '{}/{}_{}_{}_inf.png'.format(result_path, current_step, rank, idx))
 
             # generation
             eval_psnr = Metrics.calculate_psnr(Metrics.tensor2img(visuals['SR'][-1]), hr_img)
@@ -222,15 +266,18 @@ if __name__ == "__main__":
             if wandb_logger and opt['log_eval']:
                 wandb_logger.log_eval_data(fake_img, Metrics.tensor2img(visuals['SR'][-1]), hr_img, eval_psnr, eval_ssim)
 
+        avg_psnr=sync_between_proc(avg_psnr,world_size,diffusion.device)
+        avg_ssim=sync_between_proc(avg_ssim,world_size,diffusion.device)
         avg_psnr = avg_psnr / idx
         avg_ssim = avg_ssim / idx
 
         # log
-        logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
-        logger.info('# Validation # SSIM: {:.4e}'.format(avg_ssim))
-        logger_val = logging.getLogger('val')  # validation logger
-        logger_val.info('<epoch:{:3d}, iter:{:8,d}> psnr: {:.4e}, ssim：{:.4e}'.format(
-            current_epoch, current_step, avg_psnr, avg_ssim))
+        if rank==0:
+            logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
+            logger.info('# Validation # SSIM: {:.4e}'.format(avg_ssim))
+            logger_val = logging.getLogger('val')  # validation logger
+            logger_val.info('<epoch:{:3d}, iter:{:8,d}> psnr: {:.4e}, ssim：{:.4e}'.format(
+                current_epoch, current_step, avg_psnr, avg_ssim))
 
         if wandb_logger:
             if opt['log_eval']:
