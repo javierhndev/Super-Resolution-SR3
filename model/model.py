@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import os
 import model.networks as networks
-import habana_frameworks.torch.core as htcore
+#import habana_frameworks.torch.core as htcore
 from .base_model import BaseModel
 import torch.distributed as dist
 logger = logging.getLogger('base')
@@ -54,9 +54,9 @@ class DDPM(BaseModel):
         b, c, h, w = self.data['HR'].shape
         l_pix = l_pix.sum()/int(b*c*h*w)
         l_pix.backward()
-        htcore.mark_step()
+        #htcore.mark_step()
         self.optG.step()
-        htcore.mark_step()
+        #htcore.mark_step()
 
         # set log
         self.log_dict['l_pix'] = l_pix.item()

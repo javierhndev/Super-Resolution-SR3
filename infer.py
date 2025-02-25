@@ -8,7 +8,7 @@ import core.metrics as Metrics
 from core.wandb_logger import WandbLogger
 from tensorboardX import SummaryWriter
 import os
-import habana_frameworks.torch.core as htcore
+##import habana_frameworks.torch.core as htcore
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

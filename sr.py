@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 import os
 import numpy as np
 
-import habana_frameworks.torch.core as htcore
+#import habana_frameworks.torch.core as htcore
 import torch.distributed as dist
 
 def sync_between_proc(value,world_size,device):
@@ -41,13 +41,16 @@ if __name__ == "__main__":
 
     #Initialize parallelization if available (and in the config file)
     if dist.is_available() and args.distributed:
-        from habana_frameworks.torch.distributed.hccl import initialize_distributed_hpu
-        world_size, rank, local_rank = initialize_distributed_hpu()
+        #from habana_frameworks.torch.distributed.hccl import initialize_distributed_hpu
+        #world_size, rank, local_rank = initialize_distributed_hpu()
+        #dist.init_process_group(backend='hccl',
+        #        world_size=world_size,
+        #        rank=rank)
+        dist.init_process_group(backend='nccl')
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
         print('Hi Im Worker:',rank)
 
-        dist.init_process_group(backend='hccl',
-                world_size=world_size,
-                rank=rank)
     else:
         print('Running on a single device!')
         rank=0
