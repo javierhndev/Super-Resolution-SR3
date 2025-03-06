@@ -3,9 +3,10 @@ This is a fork from the [Image Super-Resolution via Iterative Refinement repo](h
 Some of the things I implemented:
 - Added Distributed Data Parallelism (DDP). Now it can run in multiple nodes with `mpirun`.
 - It works in Intel Gaudi accelerator.
+- Works on NVIDIA GPUs using the *nvidia* branch.
 
 TODO:
-- Make it compatible with Nvidia gpus.
+- Merge the *nvidia* branch and add an argument to choose between gpu and Gaudi.
 - Non-rectangular images
 
 
