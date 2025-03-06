@@ -46,9 +46,11 @@ if __name__ == "__main__":
         #dist.init_process_group(backend='hccl',
         #        world_size=world_size,
         #        rank=rank)
-        dist.init_process_group(backend='nccl')
-        rank = dist.get_rank()
-        world_size = dist.get_world_size()
+
+        rank=int(os.environ["OMPI_COMM_WORLD_RANK"])
+        world_size=int(os.environ["OMPI_COMM_WORLD_SIZE"])
+
+        dist.init_process_group(backend='nccl',rank=rank,world_size=world_size)
         print('Hi Im Worker:',rank)
 
     else:

@@ -6,7 +6,10 @@ import torch.distributed as dist
 class BaseModel():
     def __init__(self, opt):
         self.opt = opt
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.rank=0
+        if dist.is_initialized():
+            self.rank = dist.get_rank()
+        self.device = torch.device("cuda:"+ str(self.rank) if torch.cuda.is_available() else "cpu")
         #self.device = torch.device('hpu') #torch.device(
             #'cuda' if opt['gpu_ids'] is not None else 'cpu')
         self.begin_step = 0
@@ -39,7 +42,7 @@ class BaseModel():
         elif isinstance(x, torch.nn.Module):
             x = x.to(self.device)
             if dist.is_initialized():
-                x = nn.parallel.DistributedDataParallel(x)
+                x = nn.parallel.DistributedDataParallel(x,device_ids=[self.rank])
         else:
             x = x.to(self.device)
         return x

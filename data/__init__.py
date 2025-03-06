@@ -20,7 +20,7 @@ def create_dataloader(dataset, dataset_opt, phase,rank,world_size):
             dataset,
             batch_size=dataset_opt['batch_size'],
             shuffle=shuffle,
-            num_workers=dataset_opt['num_workers'],
+            num_workers=1,#dataset_opt['num_workers'],
             pin_memory=True,
             sampler=train_sampler)
         return dataloader,train_sampler

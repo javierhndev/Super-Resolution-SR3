@@ -51,8 +51,9 @@ def parse(args):
         gpu_list = gpu_ids
     else:
         gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
-    print('export CUDA_VISIBLE_DEVICES=' + gpu_list)
+    #os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
+    #print('export CUDA_VISIBLE_DEVICES=' + gpu_list)
+    print('CUDA_VISIBLE_DEVICES=',os.environ['CUDA_VISIBLE_DEVICES'])
     if len(gpu_list) > 1:
         opt['distributed'] = True
     else:
