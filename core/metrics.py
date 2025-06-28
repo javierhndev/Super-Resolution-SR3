@@ -2,6 +2,7 @@ import os
 import math
 import numpy as np
 import cv2
+import torch
 from torchvision.utils import make_grid
 
 
@@ -24,7 +25,8 @@ def tensor2img(tensor, out_type=np.uint8, min_max=(-1, 1)):
         img_np = tensor.numpy()
         img_np = np.transpose(img_np, (1, 2, 0))  # HWC, RGB
     elif n_dim == 2:
-        img_np = tensor.numpy()
+        tensor=torch.unsqueeze(tensor,2) #adding the channel dimension (even if it is one)
+        img_np = tensor.numpy() #HW1
     else:
         raise TypeError(
             'Only support 4D, 3D and 2D tensor. But received with dimension: {:d}'.format(n_dim))
