@@ -50,7 +50,8 @@ def create_dataset(dataset_opt, phase):
                 r_resolution=dataset_opt['r_resolution'],
                 split=phase,
                 data_len=dataset_opt['data_len'],
-                need_LR=(mode == 'LRHR')
+                need_LR=(mode == 'LRHR'),
+                gray_scale=dataset_opt['gray_scale']
                 )
     logger = logging.getLogger('base')
     if dist.is_initialized():

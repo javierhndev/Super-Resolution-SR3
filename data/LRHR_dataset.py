@@ -7,13 +7,14 @@ import data.util as Util
 
 
 class LRHRDataset(Dataset):
-    def __init__(self, dataroot, datatype, l_resolution=16, r_resolution=128, split='train', data_len=-1, need_LR=False):
+    def __init__(self, dataroot, datatype, l_resolution=16, r_resolution=128, split='train', data_len=-1, need_LR=False, gray_scale=False):
         self.datatype = datatype
         self.l_res = l_resolution
         self.r_res = r_resolution
         self.data_len = data_len
         self.need_LR = need_LR
         self.split = split
+        self.gray_scale = gray_scale
 
         if datatype == 'lmdb':
             self.env = lmdb.open(dataroot, readonly=True, lock=False,
@@ -91,9 +92,9 @@ class LRHRDataset(Dataset):
                 img_LR = Image.open(self.lr_path[index]).convert("RGB")
         if self.need_LR:
             [img_LR, img_SR, img_HR] = Util.transform_augment(
-                [img_LR, img_SR, img_HR], split=self.split, min_max=(-1, 1))
+                [img_LR, img_SR, img_HR], split=self.split, min_max=(-1, 1),gray_scale=self.gray_scale)
             return {'LR': img_LR, 'HR': img_HR, 'SR': img_SR, 'Index': index}
         else:
             [img_SR, img_HR] = Util.transform_augment(
-                [img_SR, img_HR], split=self.split, min_max=(-1, 1))
+                [img_SR, img_HR], split=self.split, min_max=(-1, 1),gray_scale=self.gray_scale)
             return {'HR': img_HR, 'SR': img_SR, 'Index': index}

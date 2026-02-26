@@ -1,6 +1,6 @@
 # torch>=1.6
 # torchvision
-numpy
+numpy<2.0
 pandas
 tqdm
 lmdb
